@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UWaterloo Facility Occupancy</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    header h1 { font-size: 1.2rem; font-weight: 700; color: #f8fafc; }
+    header h1 span { color: #facc15; }
+    #last-updated { font-size: 0.78rem; color: #94a3b8; }
+    #live-dot {
+      display: inline-block; width: 8px; height: 8px;
+      background: #22c55e; border-radius: 50%;
+      margin-right: 5px; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; } 50% { opacity: 0.3; }
+    }
+
+    .controls {
+      padding: 1rem 1.5rem 0;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      padding: 0.4rem 1rem;
+      border-radius: 999px;
+      border: 1px solid #475569;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab-btn.active, .tab-btn:hover {
+      background: #facc15;
+      border-color: #facc15;
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+      gap: 1.2rem;
+      padding: 1.2rem 1.5rem;
+    }
+
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1rem 1.2rem 0.8rem;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.7rem;
+    }
+    .card-title { font-size: 0.9rem; font-weight: 600; color: #f1f5f9; }
+    .card-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #0f172a;
+    }
+    .card canvas { max-height: 200px; }
+
+    #error-msg {
+      display: none;
+      text-align: center;
+      padding: 3rem;
+      color: #f87171;
+      font-size: 0.9rem;
+    }
+
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.75rem;
+      color: #475569;
+    }
+    footer a { color: #64748b; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#127947; <span>UWaterloo</span> Facility Occupancy</h1>
+  <div id="last-updated"><span id="live-dot"></span>Loading...</div>
+</header>
+
+<div class="controls">
+  <button class="tab-btn active" data-window="today">Today</button>
+  <button class="tab-btn" data-window="3d">3 Days</button>
+  <button class="tab-btn" data-window="7d">7 Days</button>
+  <button class="tab-btn" data-window="30d">30 Days</button>
+</div>
+
+<div id="error-msg">Could not load occupancy data. Please try again later.</div>
+<div class="grid" id="grid"></div>
+
+<footer>
+  Data scraped from <a href="https://warrior.uwaterloo.ca/FacilityOccupancy" target="_blank">warrior.uwaterloo.ca</a>
+  &middot; Updated every 15 min via GitHub Actions
+</footer>
+
+<script>
+const COLORS = [
+  "#60a5fa","#f97316","#4ade80","#f43f5e","#a78bfa","#facc15"
+];
+
+// Time windows: key → milliseconds back from now
+const WINDOWS = {
+  today: null,   // handled specially — midnight today
+  "3d":  3  * 86400e3,
+  "7d":  7  * 86400e3,
+  "30d": 30 * 86400e3,
+};
+
+let allData = null;
+let charts = {};
+let activeWindow = "today";
+
+async function loadData() {
+  const res = await fetch("data.json?_=" + Date.now());
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+function filterByWindow(points, window) {
+  if (!points.length) return points;
+  let cutoff;
+  if (window === "today") {
+    const d = new Date();
+    cutoff = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  } else {
+    cutoff = Date.now() - WINDOWS[window];
+  }
+  return points.filter(p => new Date(p.t).getTime() >= cutoff);
+}
+
+function latestPct(points) {
+  if (!points.length) return null;
+  return points[points.length - 1].pct;
+}
+
+function badgeStyle(pct) {
+  if (pct === null) return { bg: "#334155", color: "#94a3b8" };
+  if (pct >= 80) return { bg: "#7f1d1d", color: "#fca5a5" };
+  if (pct >= 50) return { bg: "#78350f", color: "#fcd34d" };
+  return { bg: "#14532d", color: "#86efac" };
+}
+
+function buildTimeUnit(window) {
+  if (window === "today" || window === "3d") return "hour";
+  return "day";
+}
+
+function renderAll(data, window) {
+  const grid = document.getElementById("grid");
+  const facilities = Object.keys(data.facilities);
+
+  // First render: build cards
+  if (!grid.children.length) {
+    facilities.forEach((name, i) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="card-header">
+          <span class="card-title">${name}</span>
+          <span class="card-badge" id="badge-${i}">—</span>
+        </div>
+        <canvas id="chart-${i}"></canvas>`;
+      grid.appendChild(card);
+    });
+  }
+
+  facilities.forEach((name, i) => {
+    const raw = data.facilities[name];
+    const pts = filterByWindow(raw, window);
+    const pct = latestPct(raw);  // always use latest pct for badge
+    const style = badgeStyle(pct);
+
+    const badge = document.getElementById(`badge-${i}`);
+    badge.textContent = pct !== null ? `${pct}%` : "—";
+    badge.style.background = style.bg;
+    badge.style.color = style.color;
+
+    const labels = pts.map(p => new Date(p.t));
+    const values = pts.map(p => p.pct);
+    const color = COLORS[i % COLORS.length];
+
+    if (charts[i]) {
+      charts[i].data.labels = labels;
+      charts[i].data.datasets[0].data = values;
+      charts[i].options.scales.x.time.unit = buildTimeUnit(window);
+      charts[i].update("none");
+      return;
+    }
+
+    const ctx = document.getElementById(`chart-${i}`).getContext("2d");
+    charts[i] = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          borderColor: color,
+          backgroundColor: color + "22",
+          borderWidth: 2,
+          pointRadius: pts.length < 50 ? 3 : 0,
+          pointHoverRadius: 5,
+          fill: true,
+          tension: 0.3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.parsed.y}% occupancy`
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: "time",
+            time: { unit: buildTimeUnit(window) },
+            ticks: { color: "#64748b", maxTicksLimit: 8, maxRotation: 0 },
+            grid: { color: "#1e293b" },
+          },
+          y: {
+            min: 0, max: 100,
+            ticks: { color: "#64748b", callback: v => v + "%" },
+            grid: { color: "#334155" },
+          }
+        }
+      }
+    });
+  });
+}
+
+async function init() {
+  try {
+    allData = await loadData();
+    document.getElementById("last-updated").innerHTML =
+      `<span id="live-dot"></span>Updated: ${allData.last_updated} ET`;
+    renderAll(allData, activeWindow);
+  } catch (e) {
+    document.getElementById("error-msg").style.display = "block";
+    console.error(e);
+  }
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeWindow = btn.dataset.window;
+    if (allData) renderAll(allData, activeWindow);
+  });
+});
+
+// Auto-refresh every 15 minutes
+setInterval(async () => {
+  try {
+    allData = await loadData();
+    document.getElementById("last-updated").innerHTML =
+      `<span id="live-dot"></span>Updated: ${allData.last_updated} ET`;
+    renderAll(allData, activeWindow);
+  } catch {}
+}, 10 * 60 * 1000);
+
+init();
+</script>
+</body>
+</html>

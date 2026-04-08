@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:warrior.uwaterloo.ca)",
+      "Bash(python3 generate_json.py)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('docs/data.json'\\)\\); print\\('last_updated:', d['last_updated']\\); [print\\(f, len\\(v\\), 'pts'\\) for f,v in d['facilities'].items\\(\\)]\")"
+    ]
+  }
+}

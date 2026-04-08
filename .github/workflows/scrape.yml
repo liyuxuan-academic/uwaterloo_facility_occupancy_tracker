@@ -1,0 +1,42 @@
+name: Scrape Facility Occupancy
+
+on:
+  schedule:
+    # Every 10 minutes, 7am–11pm Eastern (11:00–03:00 UTC next day)
+    - cron: "*/10 11-23,0-3 * * *"
+  workflow_dispatch:  # allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape occupancy data
+        run: python scrape.py
+
+      - name: Generate dashboard JSON
+        run: python generate_json.py
+
+      - name: Commit & push results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/occupancy.csv docs/data.json
+          git diff --cached --quiet || git commit -m "data: scrape $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
