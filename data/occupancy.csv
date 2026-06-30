@@ -5279,3 +5279,9 @@ timestamp,facility,max_occupancy,current_pct,current_count
 2026-06-30 01:53,PAC - 2nd Floor - Cardio,50,12,6
 2026-06-30 01:53,PAC - 2nd Floor - Weight Machines,40,35,14
 2026-06-30 01:53,PAC - 1st Floor - Functional,25,32,8
+2026-06-30 09:09,CIF Fitness Centre,100,2,2
+2026-06-30 09:09,PAC - 1st Floor - Free Weights,75,17,13
+2026-06-30 09:09,Warrior Zone,60,7,4
+2026-06-30 09:09,PAC - 2nd Floor - Cardio,50,12,6
+2026-06-30 09:09,PAC - 2nd Floor - Weight Machines,40,15,6
+2026-06-30 09:09,PAC - 1st Floor - Functional,25,24,6
